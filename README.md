@@ -1,15 +1,7 @@
 # Optimus
 This is the code for paper "An Efficient 2D Method for Training Super-Large Deep Learning Models" (https://arxiv.org/abs/2104.05343)
 
-Requirements:
-
-pybind11
-
-torch 1.5.0
-
-six
-
-regex
+Requirements: pybind11, torch 1.5.0, six, regex
 
 The code is tested on TACC Frontera, a SLURM system. Some modifications are needed to run on a normal ubuntu system (ubuntu, for simplicity).
 To test the benchmark code, please run: bash bcmk_ParallelTransformer.sh. On SLURM, processes are spawn with the built in command srun. On ubuntu, users can either use torch.distributed.launch command (in https://pytorch.org/docs/stable/distributed.html) or mpirun or mpiexec.
