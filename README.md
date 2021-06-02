@@ -2,9 +2,13 @@
 This is the code for paper "An Efficient 2D Method for Training Super-Large Deep Learning Models" (https://arxiv.org/abs/2104.05343)
 
 Requirements:
+
 pybind11
+
 torch 1.5.0
+
 six
+
 regex
 
 The code is tested on TACC Frontera, a SLURM system. Some modifications are needed to run on a normal ubuntu system (ubuntu, for simplicity).
