@@ -59,12 +59,17 @@ def main():
     input = torch.empty(size, dtype=args.params_dtype,
                         device=torch.cuda.current_device(),
                         requires_grad=False)
+    checkpoint_activation_buffer = mpu.get_checkpoint_activation_buffer()
+    parameter_gradient_buffer = mpu.get_parameter_gradient_buffer()
     for i in range(args.eval_iters):
         if args.rank == 0:
             print('step start: {}'.format(i), flush=True)
         _initialize_affine_weight_gpu(input, init_method)
         input.requires_grad = True
 
+        checkpoint_activation_buffer.reset()
+        parameter_gradient_buffer.reset()
+        
         time_start = time.time()
         output = layer(input, mask)
         time_1 = time.time()

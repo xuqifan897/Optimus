@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -J emb
-#SBATCH -o embo.txt
-#SBATCH -e embe.txt
+#SBATCH -J bert
+#SBATCH -o berto.txt
+#SBATCH -e berte.txt
 #SBATCH -p rtx
-#SBATCH -N 2
-#SBATCH -n 8
-#SBATCH -t 00:30:00
+#SBATCH -N 1
+#SBATCH -n 4
+#SBATCH -t 6:00:00
 
 module load cuda/10.1
 source $HOME/programs/anaconda3/bin/activate
@@ -16,15 +16,15 @@ DATA_PATH=/work2/07789/xuqifan/frontera/dataset/bert_data/my-bert_text_sentence
 VOCAB_FILE=/work/07789/xuqifan/frontera/dataset/bert_data/vocab.txt
 
 srun python pretrain_bert.py \
-       --num-layers 24 \
-       --hidden-size 2048 \
-       --num-attention-heads 16 \
+       --num-layers 2 \
+       --hidden-size 128 \
+       --num-attention-heads 2 \
        --batch-size 64 \
-       --seq-length 512 \
-       --max-position-embeddings 512 \
+       --seq-length 128 \
+       --max-position-embeddings 128 \
        --checkpoint-activations \
        --distribute-checkpointed-activations \
-       --train-iters 2000000 \
+       --train-iters 50000 \
        --save $CHECKPOINT_PATH \
        --load $CHECKPOINT_PATH \
        --data-path $DATA_PATH \
@@ -40,7 +40,7 @@ srun python pretrain_bert.py \
        --weight-decay 1e-2 \
        --clip-grad 1.0 \
        --warmup .01 \
-       --log-interval 1 \
-       --save-interval 1 \
-       --eval-interval 1 \
-       --eval-iters 1
+       --log-interval 20 \
+       --save-interval 1000 \
+       --eval-interval 200 \
+       --eval-iters 10

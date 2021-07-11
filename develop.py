@@ -389,7 +389,7 @@ def tst_ParallelTransformerLayer():
     print('haha')
 
 
-def tst_ParallelTransformer():
+def tst_ParallelTransformer(tokens=None, types=None):
     args = get_args()
     from summa.model_new.transformer import ParallelTransformer
     from summa.model_new.bert_model import bert_attention_mask_func
@@ -400,11 +400,23 @@ def tst_ParallelTransformer():
                                                    args.num_layers)
     layer = ParallelTransformer(
         bert_attention_mask_func, init_method, scaled_init_method)
+    layer = layer.to(device=torch.cuda.current_device())
+
+    from summa.mpu.embeddings import Vocab_Position_Tokentype_ParallelEmbedding
+    embedding = Vocab_Position_Tokentype_ParallelEmbedding(
+        args.padded_vocab_size, args.hidden_size, 2, init_method)
 
     size = (args.batch_size, args.seq_length, args.hidden_size)
-    input_master, input = master_and_block(
-        size, args.summa_dim, row_rank, col_rank,
-        device=torch.cuda.current_device(), requires_grad = True)
+    # from summa.mpu.random import checkpoint
+    mpu.reset_checkpointed_activations_memory_buffer()
+    parameter_gradient_buffer = mpu.get_parameter_gradient_buffer()
+    parameter_gradient_buffer.reset()
+    torch.autograd.set_detect_anomaly(True)
+    input = embedding(tokens, types)
+    # input = checkpoint(embedding, tokens, types)
+    # input_master, input = master_and_block(
+    #     size, args.summa_dim, row_rank, col_rank,
+    #     device=torch.cuda.current_device(), requires_grad = True)
     grad_master, grad = master_and_block(
         size, args.summa_dim, row_rank, col_rank,
         device=torch.cuda.current_device(), requires_grad = False)
@@ -519,6 +531,7 @@ def tst_BertModel(tokens, loss_mask, types, lm_labels):
     ddp_rank = torch.distributed.get_rank(group=mpu.get_data_parallel_group())
     from summa.model_new.bert_model import BertModel
     model = BertModel(2, True)
+    model = model.to(device=torch.cuda.current_device())
     batch_pp = mpu.divide(args.batch_size, args.summa_dim)
     loss_mask_list = torch.split(loss_mask, batch_pp, dim=0)
     attention_mask = loss_mask_list[row_rank]
@@ -532,7 +545,7 @@ def tst_BertModel(tokens, loss_mask, types, lm_labels):
     print('haha')
 
 
-def tst_TransformerLanguageModel():
+def tst_TransformerLanguageModel(tokens, tokentypes):
     args = get_args()
     col_rank = torch.distributed.get_rank(group=mpu.get_summa_row_group())
     row_rank = torch.distributed.get_rank(group=mpu.get_summa_col_group())
@@ -544,19 +557,7 @@ def tst_TransformerLanguageModel():
     model, _ = get_language_model(
         bert_attention_mask_func, 2, True,
         init_method, scaled_init_method)
-    target_shape = (args.batch_size, args.seq_length)
-    tokens = torch.rand(
-        target_shape,
-        dtype=torch.double,
-        device=torch.cuda.current_device()) \
-                    * args.padded_vocab_size
-    tokens = tokens.type(torch.cuda.LongTensor)
-
-    tokentypes = torch.rand(
-        target_shape,
-        dtype=torch.double,
-        device=torch.cuda.current_device()) * 2
-    tokentypes = tokentypes.type(torch.cuda.LongTensor)
+    model = model.to(device=torch.cuda.current_device())
 
     batch_pp = mpu.divide(args.batch_size, args.summa_dim)
     attention_mask_shape = (batch_pp, 1, args.seq_length, args.seq_length)
@@ -569,6 +570,7 @@ def tst_TransformerLanguageModel():
         tokens, None, attention_mask, tokentypes)
     loss = torch.sum(transformer_output) + torch.sum(pooled_output)
     loss.backward()
+    import pdb; pdb.set_trace()
     print('haha')
 
 
@@ -757,6 +759,90 @@ def tst_bias_dropout_add():
     print('haha')
 
 
+def tst_vocab_embedding_new(tokens, types):
+    args = get_args()
+    init_method = init_method_normal(args.init_method_std)
+    from summa.mpu.embeddings import Vocab_Position_Tokentype_ParallelEmbedding
+    layer = Vocab_Position_Tokentype_ParallelEmbedding(
+        args.padded_vocab_size, args.hidden_size, 2, init_method)
+    weight_master_ = layer.vocab_weight_master
+    with torch.no_grad():
+        weight_master = weight_master_.clone()
+    weight_master.requires_grad = True
+
+    col_rank = torch.distributed.get_rank(group=mpu.get_summa_row_group())
+    row_rank = torch.distributed.get_rank(group=mpu.get_summa_col_group())
+    size = (args.batch_size, args.seq_length, args.hidden_size)
+
+    pos_embedding_master, pos_embedding = master_and_block(
+        (args.seq_length*args.summa_dim, args.hidden_size), args.summa_dim,
+        row_rank, col_rank, torch.cuda.current_device(), False)
+    pos_embedding_master = pos_embedding_master[:args.seq_length, :]
+    pos_embedding_master.requires_grad = True
+    with torch.no_grad():
+        if row_rank == 0:
+            layer.pos_weight.copy_(pos_embedding)
+
+    tokentype_embedding_master, tokentype_embedding = master_and_block(
+        (2*args.summa_dim, args.hidden_size), args.summa_dim,
+        row_rank, col_rank, torch.cuda.current_device(), False)
+    tokentype_embedding_master = tokentype_embedding_master[:2, :]
+    tokentype_embedding_master.requires_grad = True
+    with torch.no_grad():
+        if row_rank == 0:
+            layer.tokentype_weight.copy_(tokentype_embedding)
+
+    out = layer(tokens, types)
+
+    grad_master, grad = master_and_block(
+        size, args.summa_dim, row_rank, col_rank,
+        torch.cuda.current_device(), False)
+    out.backward(grad)
+
+    out_master = F.embedding(tokens, weight_master)
+    out_master += pos_embedding_master.unsqueeze(0)
+    out_master += F.embedding(types, tokentype_embedding_master)
+    out_master.backward(grad_master)
+    import pdb;
+    pdb.set_trace()
+    print('haha')
+
+
+class HaHaModule(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, a, b, buffer=None):
+        if buffer is None:
+            c = torch.zeros(
+                (4, 4), dtype=torch.float32,
+                device=torch.cuda.current_device())
+        else:
+            c = buffer.zeros((4, 4))
+        torch.matmul(a, b, out=c)
+        ctx.save_for_backward(a, b)
+        return c
+
+    @staticmethod
+    def backward(ctx, output_grad):
+        a, b = ctx.saved_tensors
+        a_grad = torch.matmul(output_grad, b.transpose(0, 1))
+        b_grad = torch.matmul(a.transpose(0, 1), output_grad)
+        return a_grad, b_grad, None
+
+
+def tst_buffer():
+    args = get_args()
+    buffer = mpu.get_workspace()
+    device=torch.cuda.current_device()
+    a = torch.rand((4, 4), dtype=torch.float32, device=device, requires_grad=True)
+    b = torch.rand((4, 4), dtype=torch.float32, device=device)
+    c = torch.rand((4, 4), dtype=torch.float32, device=device)
+
+    d = HaHaModule.apply(a, b)
+    e = HaHaModule.apply(d, c)
+    f = torch.sum(e)
+    f.backward()
+    print(a.grad)
+
 
 def Develop(train_valid_test_dataset_provider, model_provider,
             extra_args_provider=None, args_defaults={}):
@@ -764,17 +850,17 @@ def Develop(train_valid_test_dataset_provider, model_provider,
     initialize_optimus(extra_args_provider=extra_args_provider,
                         args_defaults=args_defaults, allow_no_cuda=False)
 
-    # args = get_args()
-    # timers = get_timers()
-    #
-    # timers('train/valid/test data iterators').start()
-    # train_data_iterator, valid_data_iterator, test_data_iterator \
-    #     = build_train_valid_test_data_iterators(
-    #     train_valid_test_dataset_provider)
-    # timers('train/valid/test data iterators').stop()
-    #
-    # tokens, types, sentence_order, loss_mask, lm_labels, padding_mask \
-    #     = get_batch(train_data_iterator)
+    args = get_args()
+    timers = get_timers()
+
+    timers('train/valid/test data iterators').start()
+    train_data_iterator, valid_data_iterator, test_data_iterator \
+        = build_train_valid_test_data_iterators(
+        train_valid_test_dataset_provider)
+    timers('train/valid/test data iterators').stop()
+
+    tokens, types, sentence_order, loss_mask, lm_labels, padding_mask \
+        = get_batch(train_data_iterator)
 
     # tst_VocabParallelEmbedding(tokens)
     # tst_PosParallelEmbedding()
@@ -788,15 +874,18 @@ def Develop(train_valid_test_dataset_provider, model_provider,
     # tst_ParallelSelfAttention()
     # tst_ParallelMLP()
     # tst_ParallelTransformerLayer()
-    tst_ParallelTransformer()
+    # tst_ParallelTransformer(tokens, types)
     # tst_SUMMA_BinaryHead()
     # tst_SUMMA_CrossEntropy()
-    # tst_BertModel(tokens, loss_mask, types, lm_labels)
-    # tst_TransformerLanguageModel()
+    tst_BertModel(tokens, loss_mask, types, lm_labels)
+    # tst_TransformerLanguageModel(tokens, types)
     # tst_Pooler()
     # Compare_broadcast_AllReduce()
     # broadcast_column()
     # tst_bias_dropout_add()
+    # tst_vocab_embedding_new(tokens, types)
+    # tst_buffer()
+
 
 
 def get_batch(data_iterator):
