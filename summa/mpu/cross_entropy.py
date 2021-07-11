@@ -5,16 +5,17 @@ from .initialize import get_data_parallel_group
 
 class SUMMA_CrossEntropy(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, vocab_parallel_logits, target, vocab_start, vocab_end):
+    def forward(ctx, _vocab_parallel_logits, target, vocab_start, vocab_end):
         # vocab_parallel_logits: [b/q, s, v/q]
         # target: [b/q, s]
-        logits_max = torch.max(vocab_parallel_logits, dim=-1)[0]
+        logits_max = torch.max(_vocab_parallel_logits, dim=-1)[0]
         torch.distributed.all_reduce(
             logits_max,
             op=torch.distributed.ReduceOp.MAX,
             group=get_summa_row_group())
         # Subtract the maximum value.
-        vocab_parallel_logits.sub_(logits_max.unsqueeze(dim=-1))
+        # vocab_parallel_logits.sub_(logits_max.unsqueeze(dim=-1))
+        vocab_parallel_logits = _vocab_parallel_logits - logits_max.unsqueeze(dim=-1)
 
         # Create a mask of valid vocab ids (1 means it needs to be masked).
         target_mask = (target < vocab_start) | (target >= vocab_end)

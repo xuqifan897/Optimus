@@ -266,12 +266,12 @@ class CheckpointFunction(torch.autograd.Function):
     def forward(ctx, run_function, *args):
         ctx.run_function = run_function
 
-        if _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER is not None:
-            ctx.input_0_shape = args[0].data.shape
-            args[0].data = _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER.add(
-                args[0].data)
-
-        args[0].data = args[0].data.reshape(ctx.input_0_shape)
+        # if _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER is not None:
+        #     ctx.input_0_shape = args[0].data.shape
+        #     args[0].data = _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER.add(
+        #         args[0].data)
+        #
+        # args[0].data = args[0].data.reshape(ctx.input_0_shape)
 
         # Copy the rng states.
         ctx.fwd_cpu_rng_state = torch.get_rng_state()
@@ -288,6 +288,11 @@ class CheckpointFunction(torch.autograd.Function):
             _FHH_FORWARD_BUFFER.reset()
         with torch.no_grad():
             outputs = run_function(*args)
+
+        if _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER is not None:
+            outputs_shape = outputs.shape
+            outputs.data = _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER.add(outputs.data)
+        outputs.data = outputs.data.reshape(outputs_shape)
 
         # Store everything.
         ctx.save_for_backward(*args)
@@ -377,7 +382,7 @@ def init_workspace_memory_buffer():
     # lm head: [b/q, s, h/q], [v/q, h/q] -> [b/q, s, v/q]
     # space: bsh/p, vh/p, hsv/p
     lm_head_space = \
-        args.batch_size * args.seq_length * args.hidden_size / args.model_parallel_size + \
+        args.batch_size * args.seq_length * args.padded_vocab_size / args.model_parallel_size + \
         args.padded_vocab_size * args.hidden_size / args.model_parallel_size
 
     if args.ParallelTransformer_only:
@@ -496,12 +501,17 @@ def init_parameter_gradient_buffer():
          fhh_parameter)
     dense_buffer = hidden_pp * hidden_pp
     lm_head_buffer = hidden_pp * vocab_pp
+    embedding_buffer = vocab_pp * hidden_pp + 2 * hidden_pp
+    dense_before_pool = hidden_pp * hidden_pp
     if args.ParallelTransformer_only:
         total_space = Parallel_transformer_parameter
     else:
         total_space = \
-            Parallel_transformer_parameter \
-            + lm_head_buffer + dense_buffer
+            embedding_buffer + \
+            Parallel_transformer_parameter + \
+            dense_before_pool + \
+            dense_buffer + \
+            lm_head_buffer
 
     name = 'parameter gradient buffer'
     dtype = torch.half
@@ -541,6 +551,13 @@ def get_conjunction_gradient_buffer():
     assert _CONJUNCTION_GRADIENT_BUFFER is not None, \
         'conjunctino gradient buffer is not initialized'
     return _CONJUNCTION_GRADIENT_BUFFER
+
+
+def get_checkpoint_activation_buffer():
+    global _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER
+    assert _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER is not None, \
+        'checkpoint activation buffer is none'
+    return _CHECKPOINTED_ACTIVATIONS_MEMORY_BUFFER
 
 
 def init_QKV_forward_buffer():
@@ -585,10 +602,11 @@ def init_h4h_forward_buffer():
     # shape = (batch_pp, seq_length, 4*hidden_pp)
     space_transformer = 4 * batch_pp * seq_length * hidden_pp
     space_lmhead = batch_pp * seq_length * vocab_pp
+    space_embedding = hidden_pp * vocab_pp
     if args.ParallelTransformer_only:
         space = space_transformer
     else:
-        space = max(space_transformer, space_lmhead)
+        space = max(space_transformer, space_lmhead, space_embedding)
     name = 'h4h forward buffer'
     # _H4H_FORWARD_BUFFER = SimpleBuffer(shape, args.params_dtype)
     _H4H_FORWARD_BUFFER = allocate_mem_buff(

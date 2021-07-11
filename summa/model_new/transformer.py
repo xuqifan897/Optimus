@@ -387,9 +387,6 @@ class ParallelTransformer(OptimusModule):
             return custom_forward
 
         # Make sure memory is freed.
-        mpu.reset_checkpointed_activations_memory_buffer()
-        parameter_gradient_buffer = mpu.get_parameter_gradient_buffer()
-        parameter_gradient_buffer.reset()
         l = 0
         while l < self.num_layers:
             hidden_states = mpu.checkpoint(

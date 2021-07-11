@@ -274,7 +274,7 @@ def _add_training_args(parser):
                         help='Enable bias and gelu fusion.')
     group.add_argument('--bias-dropout-fusion', type=bool, default=True,
                        help='Enable bias and dropout fusion.')
-    group.add_argument('--ParallelTransformer-only', type=bool, default=True,
+    group.add_argument('--ParallelTransformer-only', type=bool, default=False,
                        help='whether only to checkpoint ParallelTransformer workspace')
 
     return parser

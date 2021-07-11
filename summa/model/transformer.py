@@ -563,7 +563,7 @@ class ParallelTransformer(OptimusModule):
                 if get_key_value:
                     hidden_states, present = hidden_states
                     presents.append(present)
-        
+
         # reverting data format change [s b h] --> [b s h]
         hidden_states = hidden_states.transpose(0, 1).contiguous()
 

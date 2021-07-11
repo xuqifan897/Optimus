@@ -31,6 +31,7 @@ from .random import init_parameter_gradient_buffer
 from .random import get_parameter_gradient_buffer
 from .random import init_conjunction_gradient_buffer
 from .random import get_conjunction_gradient_buffer
+from .random import get_checkpoint_activation_buffer
 from .random import init_QKV_forward_buffer
 from .random import get_QKV_forward_buffer
 from .random import init_QKV_dense_buffer

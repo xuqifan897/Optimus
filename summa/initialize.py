@@ -24,7 +24,8 @@ def initialize_optimus(extra_args_provider=None, args_defaults={},
     """
     if not allow_no_cuda:
         # Make sure cuda is available.
-        assert torch.cuda.is_available(), 'Megatron requires CUDA.'
+        assert torch.cuda.is_available(), 'Megatron requires CUDA, ' \
+                                          'rank {}'.format(int(os.getenv('SLURM_PROCID', '0')))
 
     # Parse args, build tokenizer, and set adlr-autoresume,
     # tensorboard-writer, and timers.
@@ -152,5 +153,5 @@ def _initialize_mem_buffs():
         mpu.init_backward_buffer()
         mpu.init_parameter_gradient_buffer()
         mpu.init_conjunction_gradient_buffer()
-        if not args.ParallelTransformer_only:
-            mpu.init_lmhead_dense_buffer()
+        # if not args.ParallelTransformer_only:
+        #     mpu.init_lmhead_dense_buffer()

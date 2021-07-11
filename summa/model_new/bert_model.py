@@ -83,7 +83,9 @@ class BertLMHead(OptimusModule):
             self.gelu = erf_gelu
 
         self.forward_buffer = mpu.get_h4h_forward_buffer()
-        self.backward_buffer = mpu.get_fhh_forward_buffer()
+        self.backward_buffer = mpu.get_backward_buffer()
+        # self.forward_buffer = None
+        # self.backward_buffer = None
         self.parameter_gradient_buffer = mpu.get_parameter_gradient_buffer()
 
     def forward(self, hidden_states, word_embeddings_weight):
@@ -145,12 +147,17 @@ class BertModel(OptimusModule):
                 args.hidden_size, 2, init_method)
             self._binary_head_key = 'binary_head'
 
+        self.parameter_gradient_buffer = mpu.get_parameter_gradient_buffer()
+        self.activation_checkpoint_buffer = mpu.get_checkpoint_activation_buffer()
+
     def forward(self, input_ids, attention_mask,
                 tokentype_ids=None, lm_labels=None):
 
         extended_attention_mask = bert_extended_attention_mask(
             attention_mask, next(self.language_model.parameters()).dtype)
 
+        self.parameter_gradient_buffer.reset()
+        self.activation_checkpoint_buffer.reset()
         if self.add_binary_head:
             lm_output, pooled_output = self.language_model(
                 input_ids,
@@ -166,7 +173,7 @@ class BertModel(OptimusModule):
 
         # Output.
         lm_logits = self.lm_head(
-            lm_output, self.language_model.embedding.word_embeddings.weight)
+            lm_output, self.language_model.embedding.vocab_weight)
 
         binary_logits = None
         if self.add_binary_head:
