@@ -20,4 +20,5 @@ srun python bcmk_ParallelTransformer.py \
     --hidden-size 2048 \
     --eval-iters 10 \
     --rank-rearrange \
-    --master-port 6006
+    --master-port 6006 \
+    --ParallelTransformer-only true
